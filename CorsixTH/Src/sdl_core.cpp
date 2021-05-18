@@ -26,6 +26,10 @@ SOFTWARE.
 #include <cstdio>
 #include <cstring>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "lua_sdl.h"
 #include "th_lua.h"
 
@@ -130,6 +134,53 @@ int l_get_key_modifiers(lua_State* L) {
   return 1;
 }
 
+#ifdef __EMSCRIPTEN__
+typedef struct Args {
+  lua_State* L;
+  SDL_TimerID timer;
+} Args;
+
+void do_frame(Args* args) {
+  std::printf("LOOP!\n");
+
+  int resume_stack_size = 0;
+  SDL_Event e;
+
+  if(SDL_WaitEvent(&e) == 0) {
+    emscripten_cancel_main_loop();
+  }
+
+  std::printf("GLOBAL!\n");
+
+  lua_getglobal(args->L, "App:drawFrame");
+
+  std::printf("IS FUN!\n");
+
+  if(!lua_isfunction(args->L, -1)) {
+    std::printf("App:drawFrame is not a function!");
+  }
+
+  std::printf("PCALL!\n");
+
+  lua_pcall(args->L, 0, 0, 0);
+}
+
+int l_mainloop(lua_State* L) {
+  printf("Main!\n");
+
+  SDL_TimerID timer = SDL_AddTimer(30, timer_frame_callback, nullptr);
+
+  Args args = {
+    .L = L,
+    .timer = timer
+  };
+
+  emscripten_set_main_loop_arg((em_arg_callback_func)&do_frame, (void*)&args, 0, 1);
+
+  SDL_RemoveTimer(timer);
+  return 1;
+}
+#else
 int l_mainloop(lua_State* L) {
   luaL_checktype(L, 1, LUA_TTHREAD);
   lua_State* dispatcher = lua_tothread(L, 1);
@@ -305,6 +356,7 @@ leave_loop:
   lua_xmove(dispatcher, L, n);
   return n;
 }
+#endif
 
 int l_track_fps(lua_State* L) {
   fps_ctrl* ctrl = (fps_ctrl*)lua_touserdata(L, luaT_upvalueindex(1));
